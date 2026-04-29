@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>bot_Iptv — painel</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" />
+  <style>
+    :root {
+      --bs-body-bg: #f4f6f9;
+      --bs-body-color: #212529;
+      --bs-card-cap-bg: #ffffff;
+    }
+    body {
+      background: var(--bs-body-bg);
+    }
+    .navbar-brand {
+      font-weight: 600;
+      letter-spacing: -0.5px;
+    }
+    .table {
+      --bs-table-hover-bg: rgba(13, 110, 253, 0.04);
+      margin-bottom: 0;
+    }
+    .table th {
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #6c757d;
+    }
+    .url-cell {
+      max-width: 260px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.85rem;
+    }
+    .badge-status {
+      font-size: 0.75rem;
+      min-width: 60px;
+    }
+    .preview-btn {
+      --bs-btn-padding-y: 0.2rem;
+      --bs-btn-padding-x: 0.6rem;
+      --bs-btn-font-size: 0.8rem;
+    }
+    .modal-body .accordion-button {
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+    .modal-body .item-url {
+      font-size: 0.8rem;
+      word-break: break-all;
+    }
+    .cmd-btn .spinner-border {
+      width: 1rem;
+      height: 1rem;
+      margin-right: 0.25rem;
+    }
+  </style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg bg-white shadow-sm mb-4">
+  <div class="container-fluid">
+    <span class="navbar-brand"><i class="bi bi-broadcast-pin me-2"></i>bot_Iptv</span>
+    <span id="counts" class="navbar-text text-muted small"></span>
+  </div>
+</nav>
+
+<div class="container-fluid px-3">
+  <!-- Ações -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-8">
+      <div class="d-flex gap-2 flex-wrap">
+        <button id="btnCollect" class="btn btn-primary cmd-btn">
+          <i class="bi bi-cloud-download me-1"></i> Coletar
+        </button>
+        <button id="btnRevalidate" class="btn btn-outline-secondary cmd-btn">
+          <i class="bi bi-arrow-repeat me-1"></i> Revalidar
+        </button>
+        <button id="btnRunOnce" class="btn btn-success cmd-btn">
+          <i class="bi bi-play-circle me-1"></i> Rodar tudo
+        </button>
+        <button id="btnReload" class="btn btn-outline-primary">
+          <i class="bi bi-arrow-clockwise me-1"></i> Recarregar
+        </button>
+      </div>
+      <div id="jobStatus" class="mt-2 small text-muted"></div>
+    </div>
+    <div class="col-md-4 d-flex align-items-center justify-content-md-end gap-2">
+      <label class="form-label mb-0 small">Status</label>
+      <select id="statusFilter" class="form-select form-select-sm w-auto">
+        <option value="all">Todos</option>
+        <option value="valid">Válidos</option>
+        <option value="invalid">Inválidos</option>
+        <option value="unknown">Desconhecido</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Tabela -->
+  <div class="card shadow-sm">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th style="width: 90px;">Status</th>
+            <th>URL</th>
+            <th style="width: 80px;">Fonte</th>
+            <th style="width: 70px;">Canais</th>
+            <th style="width: 120px;">Checado em</th>
+            <th style="width: 90px;">Cache</th>
+            <th style="width: 80px;">Ação</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de Preview -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-labelledby="previewModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="previewModalLabel">Preview M3U</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3 row g-2 align-items-center">
+          <div class="col-md-8">
+            <input id="modalPreviewUrl" class="form-control form-control-sm font-monospace" readonly />
+          </div>
+          <div class="col-auto">
+            <button id="btnModalRefresh" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat"></i></button>
+          </div>
+        </div>
+        <div id="modalPreviewInfo" class="mb-2"></div>
+        <input id="modalPreviewSearch" class="form-control form-control-sm mb-3" placeholder="Buscar canal..." />
+        <div id="modalPreviewAccordion" class="accordion"></div>
+        <pre id="modalPreviewRaw" class="mt-3 bg-dark text-white p-3 rounded small" style="max-height: 300px; overflow:auto; display:none;"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let currentItems = [];
+  let modalPreviewText = '';
+
+  async function loadLists() {
+    const status = document.getElementById('statusFilter').value;
+    const qs = status === 'all' ? '' : `?status=${encodeURIComponent(status)}`;
+    const tbody = document.getElementById('tbody');
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4"><div class="spinner-border spinner-border-sm text-secondary"></div></td></tr>`;
+    try {
+      const response = await fetch(`/api/lists${qs}`);
+      const data = await response.json();
+      currentItems = data.items || [];
+      renderTable(currentItems);
+      updateCounts(currentItems);
+    } catch (error) {
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger py-3">Erro: ${error.message}</td></tr>`;
+    }
+  }
+
+  function renderTable(items) {
+    const tbody = document.getElementById('tbody');
+    tbody.innerHTML = '';
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">Nenhuma lista encontrada</td></tr>';
+      return;
+    }
+    items.forEach(item => {
+      const row = document.createElement('tr');
+      const status = item.status || 'unknown';
+      const badgeColor = status === 'valid' ? 'bg-success' : status === 'invalid' ? 'bg-danger' : 'bg-secondary';
+      const cachedHtml = item.cached_url
+        ? `<a href="${item.cached_url}" target="_blank" class="badge bg-info text-decoration-none"><i class="bi bi-link-45deg"></i></a>`
+        : '<span class="text-muted">—</span>';
+      row.innerHTML = `
+        <td><span class="badge ${badgeColor} badge-status">${status}</span></td>
+        <td><span class="url-cell d-inline-block" title="${item.url || ''}">${item.url || ''}</span></td>
+        <td class="small">${item.source || '—'}</td>
+        <td class="text-center">${item.channels_count ?? 0}</td>
+        <td class="small">${item.last_checked ? new Date(item.last_checked).toLocaleString('pt-BR') : '—'}</td>
+        <td>${cachedHtml}</td>
+        <td><button class="btn btn-outline-primary btn-sm preview-btn" data-url="${encodeURIComponent(item.url || '')}"><i class="bi bi-eye"></i></button></td>
+      `;
+      row.querySelector('.preview-btn')?.addEventListener('click', () => {
+        const url = decodeURIComponent(row.querySelector('.preview-btn').dataset.url);
+        openPreview(url);
+      });
+      tbody.appendChild(row);
+    });
+  }
+
+  function updateCounts(items) {
+    const valid = items.filter(i => i.status === 'valid').length;
+    const invalid = items.filter(i => i.status === 'invalid').length;
+    const unknown = items.filter(i => !i.status || i.status === 'unknown').length;
+    document.getElementById('counts').textContent = `Válidos: ${valid} | Inválidos: ${invalid} | Desconhecidos: ${unknown}`;
+  }
+
+  async function runJob(cmd, button) {
+    const statusEl = document.getElementById('jobStatus');
+    const originalHtml = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = `<span class="spinner-border spinner-border-sm" role="status"></span> ${button.textContent.trim()}`;
+    statusEl.textContent = 'Executando...';
+    try {
+      const response = await fetch(`/api/run/${cmd}`, { method: 'POST' });
+      const data = await response.json();
+      if (data.ok) {
+        statusEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> ${cmd} concluído</span>`;
+      } else {
+        statusEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> ${data.error || 'erro'}</span>`;
+      }
+      await loadLists();
+    } catch (error) {
+      statusEl.innerHTML = `<span class="text-danger">Erro: ${error.message}</span>`;
+    } finally {
+      button.innerHTML = originalHtml;
+      button.disabled = false;
+    }
+  }
+
+  async function openPreview(url) {
+    const modal = new bootstrap.Modal(document.getElementById('previewModal'));
+    document.getElementById('modalPreviewUrl').value = url;
+    document.getElementById('modalPreviewInfo').innerHTML = '';
+    document.getElementById('modalPreviewAccordion').innerHTML = '';
+    document.getElementById('modalPreviewRaw').style.display = 'none';
+    modal.show();
+    await loadModalPreview(url, false);
+  }
+
+  async function loadModalPreview(url, force = false) {
+    const info = document.getElementById('modalPreviewInfo');
+    const accordion = document.getElementById('modalPreviewAccordion');
+    const raw = document.getElementById('modalPreviewRaw');
+    info.innerHTML = '<div class="text-muted small"><div class="spinner-border spinner-border-sm me-1"></div>Carregando...</div>';
+    try {
+      const query = `?url=${encodeURIComponent(url)}&refresh=${force ? '1' : '0'}`;
+      const response = await fetch(`/api/m3u_preview${query}`);
+      const text = await response.text();
+      modalPreviewText = text;
+      raw.style.display = 'block';
+      raw.textContent = text;
+      if (response.ok) {
+        info.innerHTML = `<span class="text-success small"><i class="bi bi-check-circle"></i> ${text.length} caracteres</span>`;
+        renderModalPreview(text, document.getElementById('modalPreviewSearch').value);
+      } else {
+        info.innerHTML = `<span class="text-danger small">Falha: ${text.slice(0, 200)}</span>`;
+      }
+    } catch (error) {
+      info.innerHTML = `<span class="text-danger small">Erro: ${error.message}</span>`;
+    }
+  }
+
+  function renderModalPreview(text, filter = '') {
+    const lines = text.split('\n');
+    const groups = new Map();
+    let currentGroup = 'Sem grupo';
+    let currentItem = null;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (trimmed.startsWith('#EXTINF:')) {
+        const groupMatch = trimmed.match(/group-title="([^"]*)"/);
+        currentGroup = groupMatch ? (groupMatch[1] || 'Sem grupo') : 'Sem grupo';
+        const nameMatch = trimmed.match(/,(.+)$/);
+        const title = nameMatch ? nameMatch[1].trim() : trimmed;
+        currentItem = { title, url: '' };
+        if (!groups.has(currentGroup)) groups.set(currentGroup, []);
+        groups.get(currentGroup).push(currentItem);
+      } else if ((trimmed.startsWith('http://') || trimmed.startsWith('https://')) && currentItem) {
+        currentItem.url = trimmed;
+      }
+    }
+    const accordion = document.getElementById('modalPreviewAccordion');
+    accordion.innerHTML = '';
+    if (!groups.size) {
+      accordion.innerHTML = '<p class="text-muted small">Nenhum item M3U encontrado.</p>';
+      return;
+    }
+    const filterTerm = filter.trim().toLowerCase();
+    let index = 0;
+    for (const [group, items] of groups) {
+      const visibleItems = items.filter(item => {
+        if (!filterTerm) return true;
+        return item.title.toLowerCase().includes(filterTerm) || item.url.toLowerCase().includes(filterTerm);
+      });
+      if (!visibleItems.length) {
+        index++;
+        continue;
+      }
+      const groupId = `modal-group-${index}`;
+      const itemHtml = visibleItems.map(item => `
+        <div class="d-flex justify-content-between align-items-start py-2 border-bottom">
+          <div>
+            <div class="fw-semibold">${escapeHtml(item.title)}</div>
+            <div class="item-url text-break"><a href="${item.url}" target="_blank" rel="noopener">${escapeHtml(item.url)}</a></div>
+          </div>
+        </div>
+      `).join('');
+      const groupElem = document.createElement('div');
+      groupElem.className = 'accordion-item';
+      groupElem.innerHTML = `
+        <h2 class="accordion-header" id="heading-${groupId}">
+          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${groupId}" aria-expanded="false" aria-controls="collapse-${groupId}">
+            ${escapeHtml(group)} <span class="badge bg-secondary ms-2">${visibleItems.length}</span>
+          </button>
+        </h2>
+        <div id="collapse-${groupId}" class="accordion-collapse collapse" aria-labelledby="heading-${groupId}" data-bs-parent="#modalPreviewAccordion">
+          <div class="accordion-body p-2">${itemHtml}</div>
+        </div>
+      `;
+      accordion.appendChild(groupElem);
+      index++;
+    }
+    if (!accordion.innerHTML.trim()) {
+      accordion.innerHTML = '<p class="text-muted small">Nenhum canal encontrado para o filtro.</p>';
+    }
+  }
+
+  function escapeHtml(text) {
+    return String(text).replace(/[&<>"]/g, function(m) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m];
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('btnCollect').addEventListener('click', (e) => runJob('collect', e.currentTarget));
+    document.getElementById('btnRevalidate').addEventListener('click', (e) => runJob('revalidate', e.currentTarget));
+    document.getElementById('btnRunOnce').addEventListener('click', (e) => runJob('run-once', e.currentTarget));
+    document.getElementById('btnReload').addEventListener('click', loadLists);
+    document.getElementById('statusFilter').addEventListener('change', loadLists);
+    document.getElementById('btnModalRefresh').addEventListener('click', () => {
+      const url = document.getElementById('modalPreviewUrl').value;
+      loadModalPreview(url, true);
+    });
+    document.getElementById('modalPreviewSearch').addEventListener('input', (e) => {
+      renderModalPreview(modalPreviewText, e.target.value);
+    });
+    loadLists();
+  });
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
